@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}
+    {% if is_join %}
+        Join Game
+    {% else %}
+        Create Game
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <form method="post">
+        {% csrf_token %}
+        <input type="text" name="player_name" placeholder="Enter a player name" minlength="2" required>
+        <button type="submit">
+            {% if is_join %}Join{% else %}Create{% endif %} Game
+        </button>
+    </form>
+{% endblock %}

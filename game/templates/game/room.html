@@ -1,0 +1,352 @@
+{% extends 'base.html' %}
+
+{% block title %}Air Hockey{% endblock %}
+
+{% block extra-css %}
+    <style>
+        * {
+            padding: 0;
+            margin: 0;
+        }
+
+        canvas {
+            background: #eee;
+            display: block;
+            margin: 0px auto;
+            margin-top: 20px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="flex">
+        <div class="alert alert-success d-flex justify-content-between" role="alert" id="copy-link-panel">
+            <span>Share the link to invite your friend to the game</span>
+            <button class="btn btn-success" id="game-link-copy-button">
+                Copy link
+            </button>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="copy-link-toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">
+                    Game link copied!
+                </div>
+                <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex flex-column">
+        <div class="row justify-content-center p-2" id="player-two">
+            {{ game.player_two }}
+        </div>
+        <canvas id="canvas" width="520" height="660"></canvas>
+        <div class="row justify-content-center p-2">
+            {{ game.player_one }}
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block extra-js %}
+    <script>
+        $('#game-link-copy-button').on('click', function (e) {
+            navigator.clipboard.writeText(location.host + "{% url 'join_game' game.code %}");
+            const toast = new bootstrap.Toast($('#copy-link-toast'))
+            toast.show()
+        })
+    </script>
+    <script>
+        const PLAYER_TYPES = {
+            PLAYER_ONE: 1,
+            PLAYER_TWO: 2,
+        }
+        const player = {{ player_index }};
+        const gameRoomName = `ws://${window.location.host}/ws/game/{{ game.code }}/{{ player_index }}/`
+        const gameSocket = new WebSocket(gameRoomName);
+
+        gameSocket.onmessage = function (e) {
+            const data = JSON.parse(e.data);
+            const type = data.info.type;
+
+            if (type === "player") {
+                const playerIndex = data.info.player;
+
+                if (playerIndex !== player) {
+                    const positions = data.info.positions;
+                    otherPlayer.x = positions.x;
+                    otherPlayer.y = positions.y;
+                    otherPlayer.radius = positions.radius;
+                }
+            } else if (type === 'ball' && player !== PLAYER_TYPES.PLAYER_ONE) {
+                const positions = data.info.positions;
+                ball.x = positions.x;
+                ball.y = positions.y;
+                ball.radius = positions.radius;
+                ballSpeed = data.info.ballSpeed;
+                xSpeed = data.info.xSpeed;
+                ySpeed = data.info.ySpeed;
+            } else if (type === 'player_two_join_game') {
+                $('#player-two').text(data.info.player_name)
+                $('#copy-link-panel').addClass('d-none')
+            }
+        };
+
+        gameSocket.onclose = function (e) {
+            console.error('Game socket closed unexpectedly');
+        };
+
+        function sendInstantAction(positions) {
+            if (gameSocket.readyState !== WebSocket.CLOSED)
+                gameSocket.send(JSON.stringify(positions));
+        }
+
+        if (player === PLAYER_TYPES.PLAYER_TWO)
+            $('#copy-link-panel').addClass('d-none')
+    </script>
+
+    <script>
+        let canvas = document.getElementById('canvas');
+        ctx = canvas.getContext('2d');
+        let gm = true;
+        let ballSpeed = 10;
+        let xSpeed = 0;
+        let ySpeed = 0;
+        let comScore = 0;
+        let playerScore = 0;
+
+        document.addEventListener("mousemove", mouseMoveHandler, false);
+
+
+        function draw_rect(x, y, w, h, b) {
+            ctx.beginPath();
+            if (b) {
+                ctx.strokeStyle = "#151B54";
+                ctx.lineWidth = 40;
+            } else {
+                ctx.strokeStyle = "#1589FF";
+                ctx.lineWidth = 4;
+            }
+            ctx.strokeRect(x, y, w, h);
+            ctx.closePath();
+        }
+
+        function draw_goal(x, y, r, s) {
+            ctx.beginPath();
+            ctx.lineWidth = 4;
+            if (s)
+                ctx.arc(x, y, r, 0, Math.PI, false);
+            else
+                ctx.arc(x, y, r, Math.PI, 0, false);
+
+            ctx.strokeStyle = "#1589FF";
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function draw_circle(x, y, r, w) {
+            ctx.beginPath();
+            ctx.lineWidth = w;
+            ctx.arc(x, y, r, 0, Math.PI * 2, false);
+            ctx.strokeStyle = "#1589FF";
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function draw_filled_circle(x, y, r, d) {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            if (d === 1) {
+                ctx.fillStyle = "#F87217";
+                ctx.strokeStyle = "#9F000F";
+            } else if (d === 2) {
+                ctx.fillStyle = "#ffdc00";
+                ctx.strokeStyle = "#9F000F";
+            } else {
+                ctx.fillStyle = "#7D0552";
+                ctx.strokeStyle = "#4CC417";
+            }
+
+            ctx.fill();
+            ctx.lineWidth = 3;
+
+            ctx.stroke();
+            ctx.closePath();
+        }
+
+        function draw_board() {
+            draw_rect(0, 0, 520, 660, 1);
+            draw_rect(30, 30, 460, 600, 0);
+            draw_goal(260, 30, 70, 1);
+            draw_goal(260, 30, 150, 1);
+            draw_goal(260, 630, 70, 0);
+            draw_goal(260, 630, 150, 0);
+            draw_circle(260, 330, 40, 4);
+            draw_circle(260, 330, 5, 4);
+
+            ctx.beginPath();
+            ctx.moveTo(30, 330);
+            ctx.lineTo(490, 330);
+            ctx.stroke();
+            ctx.closePath();
+
+            ctx.beginPath();
+            ctx.moveTo(190, 30);
+            ctx.lineTo(330, 30);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "#000";
+            ctx.stroke();
+            ctx.closePath();
+
+            ctx.beginPath();
+            ctx.moveTo(190, 630);
+            ctx.lineTo(330, 630);
+            ctx.stroke();
+            ctx.closePath();
+
+            ctx.font = "50px Pristina";
+            ctx.lineWidth = 2
+            ctx.strokeText(comScore, 440, 300);
+            ctx.strokeText(playerScore, 440, 380);
+        }
+
+        function distance(x1, y1, x2, y2) {
+            let tempX = x2 - x1;
+            let tempY = y2 - y1;
+            tempX *= tempX;
+            tempY *= tempY;
+            return Math.sqrt(tempX + tempY);
+        }
+
+
+        let Mallet = function (x, y, r) {
+            this.x = x;
+            this.y = y;
+            this.radius = r;
+        }
+
+        const players = {
+            [PLAYER_TYPES.PLAYER_ONE]: new Mallet(260, canvas.height - 100, 30),
+            [PLAYER_TYPES.PLAYER_TWO]: new Mallet(260, 100, 30)
+        }
+
+        const currentPlayer = players[player]
+        const otherPlayer = players[player === PLAYER_TYPES.PLAYER_ONE ? PLAYER_TYPES.PLAYER_TWO : PLAYER_TYPES.PLAYER_ONE];
+
+        let Ball = function (x, y, r) {
+            this.x = x;
+            this.y = y;
+            this.radius = r;
+        }
+        let ball = new Ball(canvas.width / 2, canvas.height - 200, 15);
+
+
+        function mouseMoveHandler(e) {
+            let relativeX = e.clientX - canvas.offsetLeft;
+            let relativeY = e.clientY - canvas.offsetTop;
+
+            if (relativeX > 60 && relativeX < canvas.width - 60) {
+                currentPlayer.x = relativeX;
+            }
+
+            if (relativeY > 0 && relativeY < 600) {
+                currentPlayer.y = relativeY;
+            }
+
+            sendInstantAction({
+                type: 'player',
+                player: player,
+                positions: {
+                    x: currentPlayer.x,
+                    y: currentPlayer.y,
+                    radius: currentPlayer.radius
+                }
+            })
+        }
+
+
+        function play() {
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            draw_board();
+            draw_filled_circle(currentPlayer.x, currentPlayer.y, currentPlayer.radius, player);
+            draw_filled_circle(
+                otherPlayer.x,
+                otherPlayer.y,
+                otherPlayer.radius,
+                player === PLAYER_TYPES.PLAYER_ONE ? PLAYER_TYPES.PLAYER_TWO : PLAYER_TYPES.PLAYER_ONE
+            );
+            draw_filled_circle(ball.x, ball.y, ball.radius, 0);
+
+            if (ball.x + xSpeed > canvas.width - ball.radius - 30 || ball.x + xSpeed < ball.radius + 30) {
+                xSpeed *= -1;
+            }
+
+            if (ball.x > 190 && ball.x < 330) {
+                if (ball.y + ySpeed > canvas.height + ball.radius - 30) {
+                    console.log("Computer Score");
+                    ball.x = canvas.width / 2;
+                    ball.y = canvas.height / 2 + 100;
+                    xSpeed = 0;
+                    ySpeed = 0;
+                    comScore = comScore + 1;
+                } else if (ball.y + ySpeed < 30 - ball.radius) {
+                    console.log("you Score");
+                    ball.x = canvas.width / 2;
+                    ball.y = canvas.height / 2 - 100;
+                    xSpeed = 0;
+                    ySpeed = 0;
+                    playerScore = playerScore + 1;
+                }
+            } else {
+                if (ball.y + ySpeed > canvas.height - ball.radius - 30 || ball.y + ySpeed < 30 + ball.radius) {
+                    ySpeed *= -1;
+                }
+            }
+
+            let pDist = distance(currentPlayer.x, currentPlayer.y, ball.x, ball.y);
+
+            let cDist = distance(otherPlayer.x, otherPlayer.y, ball.x, ball.y);
+
+
+            if (pDist < 45) {
+                let dx = ball.x - currentPlayer.x;
+                let dy = ball.y - currentPlayer.y;
+                dx /= 30;
+                dy /= 30;
+                xSpeed = dx * ballSpeed;
+                ySpeed = dy * ballSpeed;
+            }
+
+            if (cDist < 45) {
+                let cdx = ball.x - otherPlayer.x;
+                let cdy = ball.y - otherPlayer.y;
+                cdx /= 45;
+                cdy /= 45;
+                xSpeed = cdx * ballSpeed;
+                ySpeed = cdy * ballSpeed;
+            }
+
+            ball.x += xSpeed;
+            ball.y += ySpeed;
+
+            xSpeed *= 0.99;
+            ySpeed *= 0.99;
+
+            sendInstantAction({
+                type: 'ball',
+                positions: ball,
+                ballSpeed: ballSpeed,
+                xSpeed: xSpeed,
+                ySpeed: ySpeed
+            })
+        }
+
+        setInterval(play, 30);
+
+    </script>
+{% endblock %}
